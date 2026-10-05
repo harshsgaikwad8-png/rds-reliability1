@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Feeder Reliability · RDS Model</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0e1420; --panel:#151d2c; --line:#26334a; --text:#e6ebf5; --muted:#8fa0bd;
+    --accent:#4cc9f0; --accent2:#f7b267; --good:#5fd39a; --bad:#ff6b6b; --warn:#f7b267;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--text);font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  nav{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:28px;padding:14px 5vw;
+      background:rgba(14,20,32,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+  nav .brand{font-weight:700;letter-spacing:.04em;color:var(--accent);margin-right:auto}
+  nav a{color:var(--muted);text-decoration:none;font-size:.92rem}
+  nav a:hover{color:var(--text)}
+  main{max-width:1100px;margin:0 auto;padding:0 5vw 80px}
+  section{padding-top:64px}
+  h1{font-size:clamp(1.9rem,4.2vw,3rem);line-height:1.15;margin:56px 0 16px;max-width:820px}
+  h2{font-size:1.5rem;margin:0 0 6px}
+  p.lead{color:var(--muted);max-width:760px;margin:0 0 22px}
+  .src{font-size:.85rem;color:var(--muted)}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin:30px 0 0}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+  .kpi small{display:block;color:var(--muted);font-size:.82rem}
+  .kpi b{font-size:1.8rem;font-variant-numeric:tabular-nums}
+  .kpi span{font-size:.8rem;color:var(--muted)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;margin-top:16px}
+  .card h3{font-size:.95rem;font-weight:600;margin:0 0 4px}
+  .card .cap{font-size:.84rem;color:var(--muted);margin:0 0 10px}
+  .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:16px}
+  canvas{max-height:300px}
+  table{width:100%;border-collapse:collapse;font-size:.9rem;font-variant-numeric:tabular-nums}
+  th,td{padding:8px 10px;text-align:right;border-bottom:1px solid var(--line)}
+  th:first-child,td:first-child{text-align:left}
+  th{color:var(--muted);font-weight:600;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em}
+  .pill{display:inline-block;padding:3px 12px;border-radius:99px;font-size:.82rem;font-weight:600}
+  .pill.good{background:rgba(95,211,154,.15);color:var(--good)}
+  .pill.warn{background:rgba(247,178,103,.15);color:var(--warn)}
+  .pill.bad{background:rgba(255,107,107,.15);color:var(--bad)}
+  svg text{fill:var(--text);font-size:11px}
+  svg .muted{fill:var(--muted)}
+  form{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px 28px}
+  label{display:block;font-size:.88rem;color:var(--muted)}
+  label output{float:right;color:var(--text);font-variant-numeric:tabular-nums}
+  input[type=range]{width:100%;accent-color:var(--accent)}
+  .check{display:flex;gap:10px;align-items:center;color:var(--text)}
+  button{grid-column:1/-1;justify-self:start;background:var(--accent);color:#06222c;border:0;border-radius:8px;
+         padding:11px 22px;font-weight:700;font-size:1rem;cursor:pointer}
+  button:hover{filter:brightness(1.08)}
+  .result{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:18px}
+  .result div{border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .result small{color:var(--muted);display:block;font-size:.78rem}
+  .result b{font-size:1.4rem}
+  .delta{font-size:.78rem}
+  .delta.up{color:var(--bad)} .delta.down{color:var(--good)}
+  footer{border-top:1px solid var(--line);padding:24px 5vw;color:var(--muted);font-size:.85rem;text-align:center}
+  .scroll{overflow-x:auto}
+</style>
+</head>
+<body>
+<nav>
+  <span class="brand">FEEDERWATCH</span>
+  <a href="#network">Network</a><a href="#indices">Indices</a>
+  <a href="#validation">Model</a><a href="#scenarios">Upgrades</a><a href="#predict">Predict</a>
+</nav>
+
+<main>
+  <h1>How reliable is a radial distribution feeder? A six-load-point system, modelled two ways.</h1>
+  <p class="lead">This dashboard evaluates the reliability of a Radial Distribution System (RDS) using the
+    standard failure-mode-and-effects method, then checks it against a Monte Carlo simulation of 20,000 years of
+    operation. Every chart is computed from the model behind this page.</p>
+  <p class="src">Data: synthetic sample feeder with textbook failure rates &middot; replace with utility outage records for real studies.</p>
+
+  <div class="kpis" id="kpis"></div>
+
+  <section id="network">
+    <h2>The feeder</h2>
+    <p class="lead">A six-section main feeder. Each node supplies one load point through a fused lateral and a
+      transformer. Any main-feeder fault trips the substation breaker; a lateral or transformer fault is cleared by its own fuse.</p>
+    <div class="card"><div class="scroll"><svg id="diagram" viewBox="0 0 980 230" width="100%" role="img" aria-label="Radial feeder diagram"></svg></div></div>
+    <div class="card"><h3>Component reliability data</h3>
+      <p class="cap">Failure rate &lambda; in failures/year (length &times; rate per km), mean repair time r in hours.</p>
+      <div class="scroll"><table id="comp-table"></table></div></div>
+  </section>
+
+  <section id="indices">
+    <h2>Reliability at each load point</h2>
+    <p class="lead">Because the feeder is radial, a customer is exposed to every main-section fault upstream and
+      downstream of it, plus its own lateral and transformer.</p>
+    <div class="grid2">
+      <div class="card"><h3>Interruption frequency &lambda; (per year)</h3><p class="cap">Average outages per year at each load point.</p><canvas id="c-lam"></canvas></div>
+      <div class="card"><h3>Annual outage time U (hours)</h3><p class="cap">Hours without power per year at each load point.</p><canvas id="c-u"></canvas></div>
+      <div class="card"><h3>Energy not supplied (kWh/yr)</h3><p class="cap">Annual unserved energy per load point.</p><canvas id="c-ens"></canvas></div>
+      <div class="card"><h3>Where SAIDI comes from</h3><p class="cap">Share of customer outage hours by component group.</p><canvas id="c-contrib"></canvas></div>
+    </div>
+    <div class="card"><h3>Load-point table</h3><div class="scroll"><table id="lp-table"></table></div></div>
+  </section>
+
+  <section id="validation">
+    <h2>Model check: analytical vs. Monte Carlo</h2>
+    <p class="lead">The analytical result is compared with the average of a sequential simulation, in which
+      failures arrive randomly and repair times vary from event to event.</p>
+    <div class="card"><div class="scroll"><table id="val-table"></table></div><p class="cap" id="val-note" style="margin-top:10px"></p></div>
+    <div class="card"><h3>Distribution of annual SAIDI</h3>
+      <p class="cap">Simulated share of years falling in each SAIDI band. The average hides how bad a bad year can be.</p><canvas id="c-hist"></canvas></div>
+  </section>
+
+  <section id="scenarios">
+    <h2>What would improve reliability?</h2>
+    <p class="lead">Two common upgrades: a normally-open tie switch to a backup feeder, and remote-controlled
+      sectionalizers that cut manual switching time.</p>
+    <div class="grid2">
+      <div class="card"><h3>SAIDI by upgrade option (h/yr)</h3><p class="cap">Dashed line is the target.</p><canvas id="c-scen"></canvas></div>
+      <div class="card"><h3>Sensitivity to failure rate</h3><p class="cap">SAIDI as every failure rate is scaled.</p><canvas id="c-sens"></canvas></div>
+    </div>
+  </section>
+
+  <section id="predict">
+    <h2>Try the model yourself</h2>
+    <p class="lead">Change the assumptions and the reliability indices are recalculated live.</p>
+    <div class="card">
+      <form id="form">
+        <label>Failure-rate multiplier <output id="o-fs">1.00</output>
+          <input type="range" id="failure_scale" min="0.25" max="3" step="0.05" value="1"></label>
+        <label>Repair-time multiplier <output id="o-rs">1.00</output>
+          <input type="range" id="repair_scale" min="0.25" max="3" step="0.05" value="1"></label>
+        <label>Manual switching time (h) <output id="o-sw">1.0</output>
+          <input type="range" id="switching_h" min="0.25" max="3" step="0.25" value="1"></label>
+        <label>Load growth (%) <output id="o-lg">0</output>
+          <input type="range" id="load_growth_pct" min="-20" max="100" step="5" value="0"></label>
+        <label class="check"><input type="checkbox" id="tie_switch"> Tie switch to backup feeder</label>
+        <label class="check"><input type="checkbox" id="automation"> Remote-controlled sectionalizers</label>
+        <button type="submit">Calculate reliability</button>
+      </form>
+      <div id="result-wrap" hidden>
+        <p style="margin:18px 0 0">Result: <span id="rating" class="pill"></span></p>
+        <div class="result" id="result"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>Built with NumPy and Flask &middot; Sample data is synthetic and for demonstration.</footer>
+
+<script>
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const C = {accent: css('--accent'), accent2: css('--accent2'), muted: css('--muted'), line: css('--line'), text: css('--text')};
+Chart.defaults.color = C.muted;
+Chart.defaults.borderColor = C.line;
+Chart.defaults.font.family = 'system-ui, sans-serif';
+const get = u => fetch(u).then(r => r.json());
+const f = (x, d=2) => Number(x).toLocaleString(undefined, {minimumFractionDigits: d, maximumFractionDigits: d});
+const bar = (id, labels, data, color, extra={}) => new Chart(document.getElementById(id), {
+  type: 'bar', data: {labels, datasets: [{data, backgroundColor: color, borderRadius: 4}]},
+  options: {plugins: {legend: {display: false}}, scales: {x: {grid: {display: false}}}, ...extra}});
+
+function ratingPill(el, r) {
+  el.textContent = r.label;
+  el.className = 'pill ' + (r.label === 'Meets targets' ? 'good' : r.label.startsWith('Partially') ? 'warn' : 'bad');
+}
+
+async function init() {
+  const [ov, net, idx, val, sc] = await Promise.all(
+    ['/api/overview', '/api/network', '/api/indices', '/api/validation', '/api/scenarios'].map(get));
+
+  // KPIs
+  const s = ov.system, r = ov.rating;
+  document.getElementById('kpis').innerHTML = [
+    ['SAIFI', f(s.SAIFI, 3), 'interruptions / customer / yr (target ≤ ' + r.target_saifi + ')'],
+    ['SAIDI', f(s.SAIDI, 2) + ' h', 'outage hours / customer / yr (target ≤ ' + r.target_saidi + ')'],
+    ['CAIDI', f(s.CAIDI, 2) + ' h', 'average restoration time'],
+    ['Availability (ASAI)', f(s.ASAI * 100, 4) + '%', 'share of hours with supply'],
+    ['Energy not supplied', f(s.ENS, 0) + ' kWh', 'per year, whole feeder'],
+  ].map(k => `<div class="kpi"><small>${k[0]}</small><b>${k[1]}</b><br><span>${k[2]}</span></div>`).join('');
+
+  drawDiagram(net, idx);
+  document.getElementById('comp-table').innerHTML =
+    '<tr><th>Component</th><th>Type</th><th>Length (km)</th><th>λ (f/yr)</th><th>Repair r (h)</th></tr>' +
+    net.components.map(c => `<tr><td>${c.id}</td><td>${c.kind}</td><td>${c.length_km ? f(c.length_km) : '–'}</td><td>${f(c.lam, 4)}</td><td>${f(c.repair_h, 1)}</td></tr>`).join('');
+
+  // load-point charts
+  const lp = idx.load_points, ids = lp.map(x => x.id);
+  bar('c-lam', ids, lp.map(x => x.lam), C.accent);
+  bar('c-u', ids, lp.map(x => x.U), C.accent2);
+  bar('c-ens', ids, lp.map(x => x.ens), C.accent);
+  const g = idx.contribution, gk = Object.keys(g), tot = gk.reduce((a, k) => a + g[k], 0);
+  bar('c-contrib', gk, gk.map(k => g[k] / tot * 100), [C.accent, C.accent2, C.muted],
+      {indexAxis: 'y', scales: {x: {title: {display: true, text: '% of SAIDI'}}}});
+  document.getElementById('lp-table').innerHTML =
+    '<tr><th>Load point</th><th>Customers</th><th>Load (kW)</th><th>λ (f/yr)</th><th>r (h)</th><th>U (h/yr)</th><th>ENS (kWh/yr)</th></tr>' +
+    lp.map(x => `<tr><td>${x.id}</td><td>${x.customers}</td><td>${f(x.load_kw, 0)}</td><td>${f(x.lam, 3)}</td><td>${f(x.r, 2)}</td><td>${f(x.U, 3)}</td><td>${f(x.ens, 0)}</td></tr>`).join('');
+
+  // validation
+  const fmt = (k, v) => k === 'ASAI' ? f(v, 6) : k === 'ENS' ? f(v, 0) : f(v, 3);
+  document.getElementById('val-table').innerHTML =
+    '<tr><th>Index</th><th>Analytical</th><th>Monte Carlo</th><th>Error</th><th>MC 5th pct</th><th>MC 95th pct</th></tr>' +
+    val.rows.map(x => `<tr><td>${x.index}</td><td>${fmt(x.index, x.analytical)}</td><td>${fmt(x.index, x.monte_carlo)}</td><td>${f(x.error_pct, 2)}%</td><td>${fmt(x.index, x.p5)}</td><td>${fmt(x.index, x.p95)}</td></tr>`).join('');
+  document.getElementById('val-note').textContent =
+    `${val.years.toLocaleString()} simulated years. In ${f(val.prob_exceed * 100, 0)}% of years SAIDI exceeds the ${val.target_saidi} h target, even though the long-run average does not tell you that.`;
+  const e = val.hist.edges;
+  bar('c-hist', e.slice(0, -1).map((x, i) => f((x + e[i + 1]) / 2, 1)), val.hist.counts, C.accent,
+      {scales: {x: {title: {display: true, text: 'Annual SAIDI (h)'}, grid: {display: false}}, y: {title: {display: true, text: '% of years'}}}});
+
+  // scenarios
+  const tgt = sc.sensitivity.target;
+  const scenChart = bar('c-scen', sc.scenarios.map(x => x.name), sc.scenarios.map(x => x.SAIDI), C.accent2,
+      {scales: {y: {beginAtZero: true, title: {display: true, text: 'SAIDI (h/yr)'}}}});
+  scenChart.data.datasets.push({type: 'line', data: sc.scenarios.map(() => tgt), borderColor: C.text,
+      borderDash: [6, 4], pointRadius: 0, borderWidth: 1.5});
+  scenChart.update();
+  new Chart(document.getElementById('c-sens'), {type: 'line', data: {
+      labels: sc.sensitivity.scale.map(x => x + '×'),
+      datasets: [{label: 'Base feeder', data: sc.sensitivity.base, borderColor: C.accent2, tension: .25},
+                 {label: 'Tie + automation', data: sc.sensitivity.upgraded, borderColor: C.accent, tension: .25},
+                 {label: 'Target', data: sc.sensitivity.scale.map(() => tgt), borderColor: C.text, borderDash: [6, 4], pointRadius: 0, borderWidth: 1.5}]},
+    options: {scales: {y: {beginAtZero: true, title: {display: true, text: 'SAIDI (h/yr)'}}, x: {title: {display: true, text: 'Failure-rate multiplier'}}}}});
+}
+
+function drawDiagram(net, idx) {
+  const svg = document.getElementById('diagram'), n = net.customers.length;
+  const x0 = 70, dx = 140, yMain = 60, yLP = 170;
+  let h = `<rect x="14" y="${yMain - 22}" width="44" height="44" rx="6" fill="none" stroke="${C.accent}" stroke-width="2"/>
+           <text x="36" y="${yMain + 4}" text-anchor="middle">SUB</text>`;
+  const U = idx.load_points.map(l => l.U), maxU = Math.max(...U), minU = Math.min(...U);
+  for (let i = 0; i < n; i++) {
+    const xa = i === 0 ? 58 : x0 + (i - 1) * dx + 36, xb = x0 + i * dx;
+    h += `<line x1="${xa}" y1="${yMain}" x2="${xb}" y2="${yMain}" stroke="${C.accent}" stroke-width="3"/>
+          <text class="muted" x="${(xa + xb) / 2}" y="${yMain - 12}" text-anchor="middle">S${i + 1} · ${net.section_km[i]} km</text>
+          <rect x="${xa + (xb - xa) / 2 - 5}" y="${yMain - 5}" width="10" height="10" fill="${C.bg || '#0e1420'}" stroke="${C.text}"/>
+          <circle cx="${xb}" cy="${yMain}" r="5" fill="${C.accent}"/>
+          <line x1="${xb}" y1="${yMain}" x2="${xb}" y2="${yLP - 22}" stroke="${C.muted}" stroke-width="2"/>
+          <text class="muted" x="${xb + 8}" y="${yMain + 38}">L${i + 1}</text>`;
+    const t = maxU === minU ? 0 : (U[i] - minU) / (maxU - minU);
+    const col = `hsl(${40 - 40 * t}, 85%, ${60 - 8 * t}%)`;
+    h += `<circle cx="${xb}" cy="${yLP}" r="22" fill="${col}" fill-opacity=".22" stroke="${col}" stroke-width="2"/>
+          <text x="${xb}" y="${yLP - 2}" text-anchor="middle" font-weight="700">LP${i + 1}</text>
+          <text class="muted" x="${xb}" y="${yLP + 11}" text-anchor="middle">${f(U[i], 2)} h</text>
+          <text class="muted" x="${xb}" y="${yLP + 38}" text-anchor="middle">${net.customers[i]} cust.</text>`;
+  }
+  svg.innerHTML = h;
+}
+
+// predict form
+const sliders = {failure_scale: ['o-fs', 2], repair_scale: ['o-rs', 2], switching_h: ['o-sw', 2], load_growth_pct: ['o-lg', 0]};
+Object.entries(sliders).forEach(([id, [out, d]]) => {
+  const el = document.getElementById(id);
+  el.addEventListener('input', () => document.getElementById(out).textContent = f(el.value, d));
+});
+document.getElementById('form').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const body = {};
+  Object.keys(sliders).forEach(id => body[id] = +document.getElementById(id).value);
+  body.tie_switch = document.getElementById('tie_switch').checked;
+  body.automation = document.getElementById('automation').checked;
+  const r = await fetch('/api/predict', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}).then(x => x.json());
+  document.getElementById('result-wrap').hidden = false;
+  ratingPill(document.getElementById('rating'), r.rating);
+  const items = [['SAIFI', 3, ''], ['SAIDI', 2, ' h'], ['CAIDI', 2, ' h'], ['AENS', 2, ' kWh'], ['ENS', 0, ' kWh']];
+  document.getElementById('result').innerHTML = items.map(([k, d, u]) => {
+    const v = r.system[k], b = r.base[k], pct = b ? (v - b) / b * 100 : 0;
+    const cls = Math.abs(pct) < 0.05 ? '' : pct > 0 ? 'up' : 'down';
+    return `<div><small>${k}</small><b>${f(v, d)}${u}</b><br><span class="delta ${cls}">${cls ? (pct > 0 ? '▲ ' : '▼ ') + f(Math.abs(pct), 1) + '% vs base' : 'same as base'}</span></div>`;
+  }).join('');
+});
+
+init();
+</script>
+</body>
+</html>
